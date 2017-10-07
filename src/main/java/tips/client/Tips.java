@@ -1,9 +1,13 @@
 package tips.client;
 
 import static elemental2.dom.DomGlobal.console;
+import static io.reactivex.Single.timer;
+import static io.reactivex.schedulers.Schedulers.computation;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.MINUTES;
 
 import com.google.gwt.core.client.EntryPoint;
+import com.google.gwt.core.client.GWT;
 import com.google.gwt.core.client.Scheduler;
 import com.google.gwt.core.client.Scheduler.RepeatingCommand;
 import com.google.gwt.core.client.Scheduler.ScheduledCommand;
@@ -21,11 +25,14 @@ import com.intendia.rxgwt2.user.RxEvents;
 import com.intendia.rxgwt2.user.RxHandlers;
 import elemental2.dom.Console;
 import io.reactivex.Completable;
+import io.reactivex.Flowable;
 import io.reactivex.Observable;
 import io.reactivex.Single;
 import io.reactivex.gwt.schedulers.GwtSchedulers;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -56,21 +63,35 @@ public class Tips implements EntryPoint {
 
         // GWT Schedulers, various callbacks, not easy to combine or specify timing operations like a timeout!
         gwtScheduler().scheduleDeferred((ScheduledCommand) () -> L.log("one time command done!"));
-        // first just wrap the task in a RX type, for example a log call into a Completable
+        gwtScheduler().scheduleIncremental((RepeatingCommand) () -> {L.log("repeating command done!"); return false;});
+        // to use RX first just wrap the task in a RX type, for example a log call into a Completable
         Completable rxTask = Completable.fromAction(() -> L.log("one time command done!")); // by default synchronous
-        // now you can specify which scheduler to use
+        // with RX you can specify in which scheduler do you want to execute the task
         rxTask.subscribeOn(GwtSchedulers.deferredScheduler()); // async using a deferred scheduler
         rxTask.subscribeOn(GwtSchedulers.incrementalScheduler()); // async using a incremental scheduler
         rxTask.subscribeOn(Schedulers.io()); // GWT agnostic, but yep, this is mapped to deferred
         rxTask.subscribeOn(Schedulers.computation()); // and this one to is mapped to incremental
-        // all this subscribeOn do nothing, remember that this is a chained description, so you should save the instance
-        rxTask.subscribeOn(Schedulers.io()).subscribe(() -> L.log("task executed async and this will be log on completion"));
+        // remember that this is a chained description, so you should save the instance, like this
+        rxTask.subscribeOn(Schedulers.io()).subscribe(() -> L.log("task executed async!"));
+
         // for repeating tasks like a timer
         new Timer() { public void run() { L.log("whOOt? inheritance instead of composition?!");} }.schedule(100);
         // you should generate stream of ticks, called 'interval' (timer exists, but just emmit 1 tick)
         Observable.interval(100, MILLISECONDS).flatMapCompletable(n -> rxTask);
 
-        gwtScheduler().scheduleIncremental((RepeatingCommand) () -> {L.log("repeating command done!"); return false;});
+        // and a final example, if the web is online (and stop if not) do a task each 5min
+        online().switchMap(online -> online ? Observable.interval(5, MINUTES) : Observable.never())
+                // fetching a big list of data, so big that need to be reduced incrementally to no block the
+                // main loop, as our API is RX friendly, just observe each result item in the computation scheduler
+                .flatMapSingle(refresh -> requestData().observeOn(computation())
+                        // and reduce each item here, until the whole response is processed
+                        .<Set<String>>reduceWith(HashSet::new, (acc,n) -> { acc.add(n); return acc; }))
+                // at that point the response has been processed incrementally!
+                .doOnNext(result -> GWT.log("safe the retrieved and processed result: " + result))
+                // if something goes wrong, wait 1 minute and try again, the try will reconnect the whole observable
+                // so if the web is offline, it will not try to process again until it get online!
+                .retryWhen(at -> at.flatMapSingle(ex -> { GWT.log("updater error", ex); return timer(1, MINUTES); }))
+                .subscribe(); // eventually we'll see that subscribe responsibility can be delegated! (safer!)
 
 
         // GWT events
@@ -124,4 +145,6 @@ public class Tips implements EntryPoint {
     public void out(Object obj) { L.log(obj); }
     public void doAsync(int num, Consumer<String> fn) { fn.accept("done [" + num + "]!"); }
     public static Scheduler gwtScheduler() { return Scheduler.get(); }
+    public static Observable<Boolean> online() { return Observable.never(); }
+    public static Flowable<String> requestData() { return Flowable.never(); }
 }
