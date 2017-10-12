@@ -1,6 +1,9 @@
 package tips.client;
 
+import static com.intendia.rxgwt2.user.RxHandlers.click;
+import static com.intendia.rxgwt2.user.RxUser.bindValueChange;
 import static elemental2.dom.DomGlobal.console;
+import static io.reactivex.Observable.interval;
 import static io.reactivex.Single.timer;
 import static io.reactivex.schedulers.Schedulers.computation;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -11,23 +14,25 @@ import com.google.gwt.core.client.GWT;
 import com.google.gwt.core.client.Scheduler;
 import com.google.gwt.core.client.Scheduler.RepeatingCommand;
 import com.google.gwt.core.client.Scheduler.ScheduledCommand;
-import com.google.gwt.event.dom.client.ClickEvent;
 import com.google.gwt.event.dom.client.ClickHandler;
 import com.google.gwt.event.dom.client.FocusEvent;
 import com.google.gwt.event.dom.client.FocusHandler;
-import com.google.gwt.event.logical.shared.ResizeEvent;
-import com.google.gwt.event.logical.shared.ResizeHandler;
+import com.google.gwt.event.shared.EventHandler;
+import com.google.gwt.event.shared.GwtEvent;
 import com.google.gwt.user.client.Timer;
 import com.google.gwt.user.client.ui.Button;
+import com.google.gwt.user.client.ui.TextBox;
 import com.google.web.bindery.event.shared.EventBus;
 import com.google.web.bindery.event.shared.SimpleEventBus;
 import com.intendia.rxgwt2.user.RxEvents;
 import com.intendia.rxgwt2.user.RxHandlers;
+import com.intendia.rxgwt2.user.RxUser;
 import elemental2.dom.Console;
 import io.reactivex.Completable;
 import io.reactivex.Flowable;
 import io.reactivex.Observable;
 import io.reactivex.Single;
+import io.reactivex.disposables.Disposable;
 import io.reactivex.gwt.schedulers.GwtSchedulers;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
@@ -61,6 +66,42 @@ public class Tips implements EntryPoint {
         Stream.of("a","b","c").forEach(java8Action);
         BiConsumer<String, Throwable> java8Callback = (success, error) -> L.log("nice, but also no one use this");
 
+        schedulers();
+        events();
+        callbackHell();
+    }
+
+    private void requests() {
+        
+    }
+
+    private void events() {
+        // 💦💦💦💦 GWT events ‍🤔, actually this apply to any event source, we use gwt-user events as example… 💦💦💦💦
+        Button btn = new Button(); TextBox search = new TextBox(); EventBus eventBus = new SimpleEventBus();
+        // rxgwt contains utilities to map all HasHandler interfaces (RxHandlers)
+        btn.addClickHandler((ClickHandler) e -> L.log("click!")); // GWT
+        RxHandlers.click(btn).subscribe(ev -> L.log("click!")); // RX
+        // …all Event types (RxEvents), so you can add it to anything extending Widget
+        btn.addDomHandler((FocusHandler) e -> L.log("focus!"), FocusEvent.getType()); // GWT
+        RxEvents.focus(btn).subscribe(ev -> L.log("focus!")); // RX
+        // …or if RxGWT do not expose the adapter, you can wrap any event source using 'create'
+        eventBus.addHandler(CustomEvent.TYPE, (CustomHandler) e -> L.log("custom!")); // GWT
+        Observable.create(em -> RxUser.register(em, eventBus.addHandler(CustomEvent.TYPE, em::onNext))); //RX
+        // oh 💥 and about the eventBus, you can create one using Subjects+@Inject… https://git.io/vdzwq
+        PublishSubject<String> bus = PublishSubject.create(); bus.subscribe(e -> L.log("receive")); bus.onNext("fire");
+        // 🔥🔥🔥🔥 and finally, combine them all😱! from a text input, create a stream of search text change… 🔥🔥🔥🔥
+        Observable<String> search$ = bindValueChange(search).publish(o -> Observable
+                // ticking on text change (but steady for 100ms), button click or 1min interval (auto-refresh)
+                .merge(o.debounce(100, MILLISECONDS), click(btn), interval(1, MINUTES))
+                .withLatestFrom(o, (when, what) -> what));
+        // now you can use this composed 'search' event stream to fetch and show on each tick!
+        Disposable handler = search$.switchMapSingle(n -> requestData(n).toList()).subscribe(View::show);
+        // AND NOTE! 👍 rx makes subscription handling clean and safe, for example the search$ observable interconnect
+        // all handlers, on subscription it returns only one final handler, if you dispose it, it'll dispose all!
+        handler.dispose(); // disconnect everything! remove dom click handler, stop timers and cancel request 😵!
+    }
+
+    private void schedulers() {
         // GWT Schedulers, various callbacks, not easy to combine or specify timing operations like a timeout!
         gwtScheduler().scheduleDeferred((ScheduledCommand) () -> L.log("one time command done!"));
         gwtScheduler().scheduleIncremental((RepeatingCommand) () -> {L.log("repeating command done!"); return false;});
@@ -86,37 +127,15 @@ public class Tips implements EntryPoint {
                 .flatMapSingle(refresh -> requestData().observeOn(computation())
                         // and reduce each item here, until the whole response is processed
                         .<Set<String>>reduceWith(HashSet::new, (acc,n) -> { acc.add(n); return acc; }))
-                // at that point the response has been processed incrementally!
-                .doOnNext(result -> GWT.log("safe the retrieved and processed result: " + result))
+                // at this point the response has been processed incrementally!
+                .doOnNext(result -> GWT.log("save the processed result: " + result))
                 // if something goes wrong, wait 1 minute and try again, the try will reconnect the whole observable
                 // so if the web is offline, it will not try to process again until it get online!
                 .retryWhen(at -> at.flatMapSingle(ex -> { GWT.log("updater error", ex); return timer(1, MINUTES); }))
                 .subscribe(); // eventually we'll see that subscribe responsibility can be delegated! (safer!)
+}
 
-
-        // GWT events
-        Button btn = new Button();
-        // rxgwt contains utilities mappings all HasHandler interfaces
-        btn.addClickHandler(new ClickHandler() { public void onClick(ClickEvent e) {L.log("click!");}});
-        RxHandlers.click(btn).subscribe(ev -> L.log("click!"));
-        // all Event types, so you can add it to anything extending Widget
-        btn.addDomHandler(new FocusHandler(){public void onFocus(FocusEvent e){L.log("focus!");}},FocusEvent.getType());
-        RxEvents.focus(btn).subscribe(ev -> L.log("focus!"));
-        // or you can just wrap the event stream using Observable.create, like for custom events used in an event bus
-        EventBus bus = new SimpleEventBus();
-        bus.addHandler(ResizeEvent.getType(),new ResizeHandler(){public void onResize(ResizeEvent e) {L.log("rsz!");}});
-        // you need to wrap it as a observable, usually you will save and reuse this wrapper
-        Observable.create(em -> em.setCancellable(bus.addHandler(ResizeEvent.getType(), em::onNext)::removeHandler))
-            .subscribe(ev -> L.log("resize!"));
-        // but, at this point you might even stop using event bus and create a Subject instead
-        PublishSubject<String> rxBus = PublishSubject.create();
-        rxBus.subscribe(ev -> L.log("rxBus received event: " + ev)); // you can listen to the eventBus events
-        rxBus.onNext("fire an event!"); // and fire events to the event bus
-
-
-    }
-
-    public void callbackHell() {
+    private void callbackHell() {
         // callback hell (handling errors is so cumbersome that cannot even be included in this compact example)
         doAsync(1, success1 -> {
             doAsync(2, success2 -> {
@@ -147,4 +166,14 @@ public class Tips implements EntryPoint {
     public static Scheduler gwtScheduler() { return Scheduler.get(); }
     public static Observable<Boolean> online() { return Observable.never(); }
     public static Flowable<String> requestData() { return Flowable.never(); }
+    public static Flowable<String> requestData(String txt) { return Flowable.never(); }
+    public static class View {
+        public static void show(Object sink) {}
+    }
+    public interface CustomHandler extends EventHandler { void onCustom(CustomEvent event); }
+    public static class CustomEvent extends GwtEvent<CustomHandler> {
+        public static Type<CustomHandler> TYPE = new Type<>();
+        @Override public final Type<CustomHandler> getAssociatedType() { return TYPE; }
+        @Override protected void dispatch(CustomHandler handler) { handler.onCustom(this); }
+    }
 }
