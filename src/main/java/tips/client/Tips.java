@@ -3,12 +3,14 @@ package tips.client;
 import static com.intendia.rxgwt2.user.RxHandlers.click;
 import static com.intendia.rxgwt2.user.RxUser.bindValueChange;
 import static elemental2.dom.DomGlobal.console;
+import static io.reactivex.Observable.empty;
 import static io.reactivex.Observable.interval;
 import static io.reactivex.Single.timer;
 import static io.reactivex.schedulers.Schedulers.computation;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.MINUTES;
 
+import com.google.gwt.core.client.Callback;
 import com.google.gwt.core.client.EntryPoint;
 import com.google.gwt.core.client.GWT;
 import com.google.gwt.core.client.Scheduler;
@@ -66,13 +68,34 @@ public class Tips implements EntryPoint {
         Stream.of("a","b","c").forEach(java8Action);
         BiConsumer<String, Throwable> java8Callback = (success, error) -> L.log("nice, but also no one use this");
 
+        requests();
         schedulers();
         events();
         callbackHell();
     }
 
+    interface User{} interface Follower{} interface Tweet{}
+    interface Twitter { Single<User> me(); Observable<Follower> followers(); Observable<Tweet> tweets(); }
+    static Twitter TW = null;
+    static Observable<Tweet> wsTweets;
+    static Observable<User> restUser;
+    private static Observable<Tweet> wsTweets(User u) { return empty(); }
+
     private void requests() {
-        
+        // RxJava is much better than I Promised 😜! As with schedulers or events, you can unify and decouple nicely
+        // your request strategy with the RX API; RxGWT, AutoREST or AutoRPC, help you create RX services, anyway…
+        class Rest { void doRequest(Callback<String, Exception> cb) {} } Rest rest = new Rest();
+        // …whatever service service lib you are using it'll looks like this 👆, so you can wrap as a Single using…
+        Single<String> rx = Single.create(em -> rest.doRequest(new Callback<String, Exception>() {
+            @Override public void onFailure(Exception reason) { em.onError(reason);}
+            @Override public void onSuccess(String result) { em.onSuccess(result); }}));
+        // but RX is better than a Promise💥 bc it is fully typed, support cancellation, can be reused and composed
+        Single.zip(rx, TW.me(), TW.followers().toList(), TW.tweets().toList(), (tkn, user, followers, tweets) -> null);
+        // also, RX is a super-light weight async stream API, so if TW.tweets() looks like Observable<Tweet>…
+        TW.tweets().subscribe(tweet -> {/*can be: web-sockets stream, offline from cache, actual REST request, etc*/});
+        // or you can easily compose completely different request services, or events, schedulers, etc!🌈
+        restUser.switchMap(user -> wsTweets(user).buffer(4, 1).sample(interval(1, MINUTES))).forEach(tweet -> {});
+        // 👆per user (rest), group the last 4tweets (websocket), notifying each minute (scheduler) 😬😱
     }
 
     private void events() {
@@ -118,10 +141,10 @@ public class Tips implements EntryPoint {
         // for repeating tasks like a timer
         new Timer() { public void run() { L.log("whOOt? inheritance instead of composition?!");} }.schedule(100);
         // you should generate stream of ticks, called 'interval' (timer exists, but just emmit 1 tick)
-        Observable.interval(100, MILLISECONDS).flatMapCompletable(n -> rxTask);
+        interval(100, MILLISECONDS).flatMapCompletable(n -> rxTask);
 
         // and a final example, if the web is online (and stop if not) do a task each 5min
-        online().switchMap(online -> online ? Observable.interval(5, MINUTES) : Observable.never())
+        online().switchMap(online -> online ? interval(5, MINUTES) : Observable.never())
                 // fetching a big list of data, so big that need to be reduced incrementally to no block the
                 // main loop, as our API is RX friendly, just observe each result item in the computation scheduler
                 .flatMapSingle(refresh -> requestData().observeOn(computation())
