@@ -58,6 +58,7 @@ public class Tips implements EntryPoint {
         requests();
         schedulers();
         events();
+        Notifications.showJokes();
     }
 
     private void callbackUnifier() {//@formatter:off
