@@ -28,7 +28,7 @@ public interface Notifications {
     }
 
     static <T> Single<T> fetchJson(String url, Class<T> as) {
-        return fromPromise(fetch(url)).flatMap(n -> fromPromise(n.json()).map(Js::<T>cast));
+        return fromPromise(fetch(url)).flatMap(n -> fromPromise(n.json())).map(Js::<T>cast);
     }
 
     @JsType(isNative = true, namespace = GLOBAL, name = "Object") class Random {
