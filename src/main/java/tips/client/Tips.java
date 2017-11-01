@@ -53,33 +53,48 @@ public class Tips implements EntryPoint {
     static final Console L = console;
 
     @Override public void onModuleLoad() {
-        callbackHell();
         callbackUnifier();
+        callbackHell();
+        requests();
+        schedulers();
+        events();
     }
 
     private void callbackUnifier() {//@formatter:off
         // how many callbacks exits in your app? did you include errors in all of them, did you even have listeners
         // (means, and handler with more than one success path, like the old MouseListener with onMove, onClick, etc.
         // in just one "callback")?
-        // >> JDK <<
         Runnable javaThreadTarget = () -> L.log("no arguments, no error path");
         // new Thread(javaThreadTarget)
         Consumer<String> java8Action = success -> L.log("from the sdk, and looks good, but and standard at all");
         Stream.of("a","b","c").forEach(java8Action);
         BiConsumer<String, Throwable> java8Callback = (success, error) -> L.log("nice, but also no one use this");
-
-        requests();
-        schedulers();
-        events();
-        callbackHell();
     }
 
-    interface User{} interface Follower{} interface Tweet{}
-    interface Twitter { Single<User> me(); Observable<Follower> followers(); Observable<Tweet> tweets(); }
-    static Twitter TW = null;
-    static Observable<Tweet> wsTweets;
-    static Observable<User> restUser;
-    private static Observable<Tweet> wsTweets(User u) { return empty(); }
+    private void callbackHell() {
+        // callback hell (handling errors is so cumbersome that cannot even be included in this compact example)
+        doAsync(1, success1 -> {
+            doAsync(2, success2 -> {
+                doAsync(3, success3 -> {
+                    out(success1 + success2 + success3);
+                });
+            });
+        });
+        // wrapping async methods in RX is supper easy, and it's ok to doAsync throw an exception!
+        Function<Integer, Single<String>> rx = n -> Single.create(em -> doAsync(n, em::onSuccess));
+        Single<String> rx1 = rx.apply(1), rx2 = rx.apply(2), rx3 = rx.apply(3); // reusable 👍, not a Promise 😜
+        // now you can use many strategies to compose, like creating a flow of all the results
+        Single.concat(rx1, rx2, rx3).reduce((n, m) -> n + m).subscribe(this::out);
+        // or if you don't care about the order, do it in parallel (not easy with callbacks 😬)
+        Single.merge(rx1, rx2, rx3).reduce((n, m) -> n + m).subscribe(this::out);
+        // or just chain each async task one each other combining the results
+        rx1.flatMap(n -> rx2.map(m -> n + m)).flatMap(n -> rx3.map(m -> n + m)).subscribe(this::out);
+        // in all this examples error are unified and can be handled in many ways, the basic one being
+        Single.merge(rx1, rx2, rx3).reduce((n, m) -> n + m).subscribe(this::out, err -> {/*handle any error*/});
+        // but you can always handle it per source, so for example if rx1 is not so important you can do
+        Single.merge(rx1.onErrorReturnItem("it's fine"), rx2, rx3).reduce((n, m) -> n + m).subscribe(this::out);
+        // so if rx1 fail it wont kill the whole operation, how do yo make it (and so descriptive) with callbacks?
+    }
 
     private void requests() {
         // RxJava is much better than I Promised 😜! As with schedulers or events, you can unify and decouple nicely
@@ -156,31 +171,6 @@ public class Tips implements EntryPoint {
                 // so if the web is offline, it will not try to process again until it get online!
                 .retryWhen(at -> at.flatMapSingle(ex -> { GWT.log("updater error", ex); return timer(1, MINUTES); }))
                 .subscribe(); // eventually we'll see that subscribe responsibility can be delegated! (safer!)
-}
-
-    private void callbackHell() {
-        // callback hell (handling errors is so cumbersome that cannot even be included in this compact example)
-        doAsync(1, success1 -> {
-            doAsync(2, success2 -> {
-                doAsync(3, success3 -> {
-                    out(success1 + success2 + success3);
-                });
-            });
-        });
-        // wrapping async methods in RX is supper easy, and it's ok to doAsync throw an exception!
-        Function<Integer, Single<String>> rx = n -> Single.create(em -> doAsync(n, em::onSuccess));
-        Single<String> rx1 = rx.apply(1), rx2 = rx.apply(2), rx3 = rx.apply(3); // reusable 👍, not a Promise 😜
-        // now you can use many strategies to compose, like creating a flow of all the results
-        Single.concat(rx1, rx2, rx3).reduce((n, m) -> n + m).subscribe(this::out);
-        // or if you don't care about the order, do it in parallel (not easy with callbacks 😬)
-        Single.merge(rx1, rx2, rx3).reduce((n, m) -> n + m).subscribe(this::out);
-        // or just chain each async task one each other combining the results
-        rx1.flatMap(n -> rx2.map(m -> n + m)).flatMap(n -> rx3.map(m -> n + m)).subscribe(this::out);
-        // in all this examples error are unified and can be handled in many ways, the basic one being
-        Single.merge(rx1, rx2, rx3).reduce((n, m) -> n + m).subscribe(this::out, err -> {/*handle any error*/});
-        // but you can always handle it per source, so for example if rx1 is not so important you can do
-        Single.merge(rx1.onErrorReturnItem("it's fine"), rx2, rx3).reduce((n, m) -> n + m).subscribe(this::out);
-        // so if rx1 fail it wont kill the whole operation, how do yo make it (and so descriptive) with callbacks?
     }
 
     // just to make example works
@@ -199,4 +189,10 @@ public class Tips implements EntryPoint {
         @Override public final Type<CustomHandler> getAssociatedType() { return TYPE; }
         @Override protected void dispatch(CustomHandler handler) { handler.onCustom(this); }
     }
+    interface User{} interface Follower{} interface Tweet{}
+    interface Twitter { Single<User> me(); Observable<Follower> followers(); Observable<Tweet> tweets(); }
+    static Twitter TW = null;
+    static Observable<Tweet> wsTweets;
+    static Observable<User> restUser;
+    private static Observable<Tweet> wsTweets(User u) { return empty(); }
 }
