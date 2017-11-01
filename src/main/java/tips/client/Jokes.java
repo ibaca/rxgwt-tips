@@ -14,7 +14,7 @@ import jsinterop.annotations.JsType;
 import jsinterop.base.Js;
 import jsinterop.base.JsPropertyMap;
 
-public interface Notifications {
+public interface Jokes {
 
     static Disposable showJokes() {
         return fromPromise(Notification.requestPermission()).filter("granted"::equals)
@@ -28,7 +28,9 @@ public interface Notifications {
     }
 
     static <T> Single<T> fetchJson(String url, Class<T> as) {
-        return fromPromise(fetch(url)).flatMap(n -> fromPromise(n.json())).map(Js::<T>cast);
+        return fromPromise(fetch(url))
+                .flatMap(n -> fromPromise(n.json()))
+                .map(Js::<T>cast);
     }
 
     @JsType(isNative = true, namespace = GLOBAL, name = "Object") class Random {

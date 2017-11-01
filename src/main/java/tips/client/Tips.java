@@ -58,7 +58,8 @@ public class Tips implements EntryPoint {
         requests();
         schedulers();
         events();
-        Notifications.showJokes();
+        Jokes.showJokes();
+        Pokeapi.showPokemons();
     }
 
     private void callbackUnifier() {//@formatter:off
