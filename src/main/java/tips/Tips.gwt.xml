@@ -4,7 +4,6 @@
     <inherits name="com.intendia.rxgwt2.RxUser"/>
     <inherits name="com.intendia.rxgwt2.RxElemento"/>
     <inherits name="elemental2.dom.Dom"/>
-    <inherits name="com.google.gwt.inject.Inject"/>
     <entry-point class="tips.client.Tips"/>
     <collapse-all-properties/>
 </module>

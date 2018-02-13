@@ -43,7 +43,7 @@ public interface Pokeapi {
     @JsType(isNative = true, namespace = GLOBAL, name = "Object") class Pokeref {
         public String name, url;
 
-        @JsType(isNative = true, namespace = GLOBAL, name = "Object") class Wrap {
+        @JsType(isNative = true, namespace = GLOBAL, name = "Object") public static class Wrap {
             public Pokeref[] results;
             public String next;
         }

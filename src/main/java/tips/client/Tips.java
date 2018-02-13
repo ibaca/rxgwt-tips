@@ -53,11 +53,11 @@ public class Tips implements EntryPoint {
     static final Console L = console;
 
     @Override public void onModuleLoad() {
-        callbackUnifier();
-        callbackHell();
-        requests();
-        schedulers();
-        events();
+        //callbackUnifier();
+        //callbackHell();
+        //requests();
+        //schedulers();
+        //events();
         Jokes.showJokes();
         Pokeapi.showPokemons();
     }
